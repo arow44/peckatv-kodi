@@ -1,3 +1,5 @@
+import socket
+
 import xbmc
 import xbmcaddon
 import xbmcgui
@@ -36,7 +38,8 @@ def notify(msg, error=False):
 
 def get_api():
     return PeckaApi(PROFILE, login=setting('login'), password=setting('password'),
-                    session_token=setting('session_token').strip(), log=log)
+                    session_token=setting('session_token').strip(), log=log,
+                    device_name='Kodi (%s)' % socket.gethostname())
 
 
 def isa_available():

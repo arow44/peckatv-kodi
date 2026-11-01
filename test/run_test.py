@@ -20,9 +20,15 @@ RESP = json.load(open(os.path.join(HERE, 'fixtures', 'responses.json'), encoding
 from resources.lib import api as A  # noqa: E402
 
 
+PAIRED = []
+
+
 def fake_post(self, path, data=None):
     if path == 'api/authenticate':
-        return {'success': True, 'authorized_device': True, 'session_token': 'NEWTOKEN'}
+        return {'success': True, 'authorized_device': bool(PAIRED), 'session_token': 'NEWTOKEN'}
+    if path == 'api/subscriber/pairBrowser':
+        PAIRED.append(data['name'])
+        return {'success': True, 'pairing_success': True}
     if path == 'api/contentdemon/getContent/':
         return {'stream_uri': 'https://streaming.example/arch.m3u8', 'start_from': 0, 'overlap_pre': 60}
     return json.loads(RESP[path])
@@ -45,6 +51,7 @@ def go(q):
 try:
     assert len(go('?')[0]) == 3
     live = go('?action=live')[0]
+    assert len(PAIRED) == 1 and PAIRED[0].startswith('Kodi'), PAIRED
     assert len(live) > 100, len(live)
     assert len(go('?action=archive')[0]) > 0
     assert len(go('?action=archive_days&id=643')[0]) >= 7

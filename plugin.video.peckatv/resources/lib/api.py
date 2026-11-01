@@ -33,11 +33,12 @@ def tz_offset_minutes(ts=None):
 
 
 class PeckaApi(object):
-    def __init__(self, profile_dir, login='', password='', session_token='', log=None):
+    def __init__(self, profile_dir, login='', password='', session_token='', log=None, device_name='Kodi'):
         self.profile_dir = profile_dir
         self.login = login
         self.password = password
         self.session_token = session_token
+        self.device_name = device_name
         self.log = log or (lambda msg: None)
         if not os.path.isdir(profile_dir):
             os.makedirs(profile_dir)
@@ -68,8 +69,8 @@ class PeckaApi(object):
             self.log('cookie save failed: %s' % e)
 
     def reset(self):
+        # keep cookies: they identify the paired device, clearing them would take another device slot
         self.state = {}
-        self.cj.clear()
         self._save_state()
 
     # ---------- http ----------
@@ -130,13 +131,24 @@ class PeckaApi(object):
                 raise AuthError(res.get('message') or 'Přihlášení selhalo')
         if res is None:
             raise AuthError('Vyplň v nastavení přihlašovací údaje nebo session token')
-        if res.get('authorized_device') is False:
-            raise AuthError('Zařízení není autorizované (vyčerpán počet zařízení?)')
         if res.get('session_token'):
             self.state['session_token'] = res['session_token']
+        if res.get('authorized_device') is False:
+            self._pair_device()
         self.state['logged_in'] = True
         self._save_state()
         self._ensure_profile()
+
+    def _pair_device(self):
+        """New client = unauthorized device; the web app pairs itself as a 'browser' the same way."""
+        self.log('device not authorized, pairing as "%s"' % self.device_name)
+        try:
+            res = self._raw_post('api/subscriber/pairBrowser', {'name': self.device_name})
+        except ApiError as e:
+            raise AuthError('Spárování zařízení selhalo: %s' % e)
+        if not res.get('pairing_success'):
+            raise AuthError(res.get('message') or 'Spárování zařízení selhalo (limit zařízení?)')
+        self._save_state()  # persist device cookie, otherwise every start would pair a new device
 
     def _ensure_profile(self):
         if self.state.get('profile_id'):
