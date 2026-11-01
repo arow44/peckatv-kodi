@@ -21,9 +21,19 @@ from resources.lib import api as A  # noqa: E402
 
 
 PAIRED = []
+CALLS = []
+DEVICE_INIT = {
+    'api/device/getDeviceToken/': {'success': True, 'device_token': 'x'},
+    'api/device/evaluateDeviceType/': {'success': True, 'device_type': 'web'},
+    'api/device/logDeviceStart/': {'success': True},
+    'api/device/getSettings/': {'success': True, 'settings': {}},
+}
 
 
 def fake_post(self, path, data=None):
+    CALLS.append(path)
+    if path in DEVICE_INIT:
+        return DEVICE_INIT[path]
     if path == 'api/authenticate':
         return {'success': True, 'authorized_device': bool(PAIRED), 'session_token': 'NEWTOKEN'}
     if path == 'api/subscriber/pairBrowser':
@@ -55,6 +65,8 @@ try:
     assert len(go('?')[0]) == 3
     live = go('?action=live')[0]
     assert len(PAIRED) == 1 and PAIRED[0].startswith('Kodi'), PAIRED
+    assert all(p in CALLS for p in DEVICE_INIT), CALLS
+    assert CALLS.index('api/device/getSettings/') < CALLS.index('api/device/getSources'), CALLS
     assert len(live) > 100, len(live)
     assert len(go('?action=archive')[0]) > 0
     assert len(go('?action=archive_days&id=643')[0]) >= 7

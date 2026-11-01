@@ -16,6 +16,17 @@ UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36')
 LANGS = ['ces', 'slk', 'eng', 'deu']
 SOURCES_TTL = 1800  # signed URLs are valid 24 h, refresh every 30 min
+# what the web app's DeviceCapabilityProbe reports for a browser with MSE, no DRM
+DEVICE_PROBE = {
+    'user_agent': UA,
+    'browser_features': {
+        'drm': [],
+        'eme': {'supported': False, 'keySystems': {}},
+        'mse': {'supported': True, 'managed': False, 'nativeHls': False,
+                'codecs': ['avc1.64001f', 'avc1.640028', 'hvc1.1.6.L120.90', 'mp4a.40.2']},
+        'workers': {'supported': True, 'mseInWorker': False},
+    },
+}
 
 
 class ApiError(Exception):
@@ -105,7 +116,7 @@ class PeckaApi(object):
             raise ApiError('Invalid JSON from %s' % path)
 
     def post(self, path, data=None, _retry=True):
-        if not self.state.get('logged_in'):
+        if not (self.state.get('logged_in') and self.state.get('device_started')):
             self.authenticate()
         try:
             res = self._raw_post(path, data)
@@ -142,8 +153,10 @@ class PeckaApi(object):
         if res.get('authorized_device') is False:
             self._pair_device()
         self.state['logged_in'] = True
+        self.state['device_started'] = False
         self._save_state()
         self._ensure_profile()
+        self._device_start()
 
     def _pair_device(self):
         """New client = unauthorized device; the web app pairs itself as a 'browser' the same way."""
@@ -157,17 +170,37 @@ class PeckaApi(object):
         self._save_state()  # persist device cookie, otherwise every start would pair a new device
 
     def _ensure_profile(self):
-        if self.state.get('profile_id'):
-            return
-        res = self._raw_post('api/device/getSubscriberProfiles/', {})
-        pid = res.get('remembered_subscriber_profile_id')
-        if not pid and res.get('profiles'):
-            pid = res['profiles'][0]['id']
+        pid = self.state.get('profile_id')
         if not pid:
-            raise ApiError('Nenalezen žádný profil')
+            res = self._raw_post('api/device/getSubscriberProfiles/', {})
+            pid = res.get('remembered_subscriber_profile_id')
+            if not pid and res.get('profiles'):
+                pid = res['profiles'][0]['id']
+            if not pid:
+                raise ApiError('Nenalezen žádný profil')
+        # web activates the profile on every start
         self._raw_post('api/device/subscriberProfileUsed/',
                        {'id_subscriber_profile': pid, 'remember_subscriber_profile': True})
         self.state['profile_id'] = pid
+        self._save_state()
+
+    def _device_start(self):
+        """Same init as the web app after login. Without it EPG endpoints fail with
+        HTTP 500 'Invalid url given: v2/epg/'."""
+        device_type = None
+        try:
+            self._raw_post('api/device/getDeviceToken/', {})
+            res = self._raw_post('api/device/evaluateDeviceType/', {'payload': DEVICE_PROBE})
+            device_type = res.get('device_type')
+            start = {'firmware': 'Linux - Kodi'}
+            if device_type:
+                start['device_type'] = device_type
+            self._raw_post('api/device/logDeviceStart/', start)
+            self._raw_post('api/device/getSettings/', {'id_subscriber_profile': self.state['profile_id']})
+        except ApiError as e:
+            self.log('device start failed: %s' % e)
+        self.log('device start done, device_type=%s' % device_type)
+        self.state['device_started'] = True
         self._save_state()
 
     @property
