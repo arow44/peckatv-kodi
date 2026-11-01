@@ -24,9 +24,9 @@ Target: LibreELEC 12+ (Kodi 21 Omega+, Python 3) on Raspberry Pi 4. Communicate 
   return HTTP 500 "Invalid url given: v2/epg/" (seen on a freshly paired Kodi; verified fixed in 0.1.5).
 - `api/device/getSources` `{id_subscriber_profile}` → `channels[]` with
   `content_sources[0].stream_profile_urls.adaptive` = pre-signed HLS master (`_did,_sig,_ttl=86400`), `drm_config` null, `catchup_length` (hours), `id_epg`.
-- `api/epg/getEpgByDate` `{epg_ids[], date:'YYYY-M-D' (no zero padding!), language[], timezone_offset(min)}` → `broadcasts{id_epg:[...]}`; includes previous evening.
-- `api/epg/getCatchupBroadcasts` `{from,to,id_epg,language,timezone_offset}` – used by web (and us) for single-channel archive lists; `getEpgByDate` with one id fails ("invalid url given v2/epg").
-  getEpgByDate is only used by the web with all epg_ids.
+- `api/epg/getEpgByDate` `{epg_ids[], date:'YYYY-M-D' (web sends it unpadded; padding was not proven to matter), language[], timezone_offset(min)}` → `broadcasts{id_epg:[...]}`; includes previous evening.
+- `api/epg/getCatchupBroadcasts` `{from,to,id_epg,language,timezone_offset}` – used by web (and us) for single-channel archive lists.
+  ("Invalid url given: v2/epg/" was caused by missing device init, not by these params.)
 - `api/contentdemon/getContent/` `{channel_id,start,end,broadcast_offset}` → `stream_uri, start_from, overlap_pre, overlap_post, drm_config, hls_playlist_type`.
   Verified via HAR: request `broadcast_offset:null`, response `start_from:60, overlap_pre:60, hls_playlist_type:VOD`.
 - `api/peoplemeter/getStreamLimit/` → `{allow_stream,max_devices,current_devices}`.
