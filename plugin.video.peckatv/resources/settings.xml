@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<settings>
+  <category label="Účet">
+    <setting label="Přihlášení: vyplň buď e-mail a heslo, NEBO session token" type="lsep"/>
+    <setting id="login" label="E-mail / login" type="text" default=""/>
+    <setting id="password" label="Heslo" type="text" option="hidden" default=""/>
+    <setting id="session_token" label="Session token (localStorage 'sessionLoginToken' z online.pecka.tv)" type="text" default=""/>
+    <setting id="reset_session" label="Odhlásit / smazat uloženou session" type="action" action="RunPlugin(plugin://plugin.video.peckatv/?action=reset)"/>
+  </category>
+  <category label="Přehrávání">
+    <setting id="use_isa" label="Použít inputstream.adaptive" type="bool" default="true"/>
+    <setting id="max_height" label="Max. rozlišení (ISA)" type="select" values="1080|720|540" default="1080"/>
+  </category>
+  <category label="IPTV Simple">
+    <setting id="iptv_enabled" label="Automaticky generovat M3U a EPG" type="bool" default="false"/>
+    <setting id="iptv_folder" label="Cílová složka" type="folder" default="special://profile/addon_data/plugin.video.peckatv/" option="writeable"/>
+    <setting id="epg_days_back" label="EPG dní zpět" type="slider" range="0,1,7" option="int" default="3"/>
+    <setting id="epg_days_forward" label="EPG dní dopředu" type="slider" range="1,1,7" option="int" default="2"/>
+    <setting id="iptv_interval" label="Interval obnovy (hodiny)" type="slider" range="1,1,24" option="int" default="12"/>
+    <setting id="iptv_generate" label="Vygenerovat teď" type="action" action="RunPlugin(plugin://plugin.video.peckatv/?action=iptv_generate)"/>
+  </category>
+</settings>

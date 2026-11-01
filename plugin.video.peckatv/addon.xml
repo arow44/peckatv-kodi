@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<addon id="plugin.video.peckatv" name="Pecka.TV" version="0.1.0" provider-name="Petr">
+  <requires>
+    <import addon="xbmc.python" version="3.0.0"/>
+    <import addon="inputstream.adaptive" version="20.0.0" optional="true"/>
+  </requires>
+  <extension point="xbmc.python.pluginsource" library="default.py">
+    <provides>video</provides>
+  </extension>
+  <extension point="xbmc.service" library="service.py"/>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="cs_CZ">Pecka.TV – živé vysílání a archiv</summary>
+    <summary lang="en_GB">Pecka.TV – live TV and catch-up</summary>
+    <description lang="cs_CZ">Neoficiální doplněk pro předplatitele Pecka.TV. Živé kanály, archiv a export M3U/XMLTV pro IPTV Simple Client.</description>
+    <description lang="en_GB">Unofficial add-on for Pecka.TV subscribers. Live channels, catch-up and M3U/XMLTV export for IPTV Simple Client.</description>
+    <platform>all</platform>
+    <license>MIT</license>
+    <assets>
+      <icon>icon.png</icon>
+    </assets>
+  </extension>
+</addon>

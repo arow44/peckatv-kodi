@@ -1,0 +1,38 @@
+# plugin.video.peckatv
+
+Unofficial Kodi video add-on for Pecka.TV (Czech IPTV, platform 4NET.TV "LiveWeb").
+Target: LibreELEC 12+ (Kodi 21 Omega+, Python 3) on Raspberry Pi 4. Communicate in Czech.
+
+## Layout
+- `plugin.video.peckatv/addon.xml` – manifest (pluginsource `default.py`, service `service.py`)
+- `resources/lib/api.py` – HTTP client (urllib + LWPCookieJar, no external deps)
+- `resources/lib/plugin.py` – router / directory listings / playback
+- `resources/lib/iptv.py` – M3U + XMLTV export for PVR IPTV Simple Client
+- `resources/lib/service.py` – periodic IPTV export
+- `resources/lib/kodiutils.py` – settings, ListItem/inputstream.adaptive helpers
+- `test/` – mock xbmc* modules + `run_test.py` (replays recorded API responses)
+
+## API (https://online.pecka.tv/, all POST JSON, brand id 66)
+- Session = cookie. Expired/unauthorized → HTTP 403 → re-authenticate.
+- `api/authenticate` `{session_login_token}` (reliable; token = localStorage `sessionLoginToken` on online.pecka.tv)
+  or `{login, password, id_brand:66}` (UNVERIFIED – Pecka hides login screen, real login goes via pecka.tv → `/autologin/<token>` → `api/authenticateByAutologinToken`).
+  Response: `{success, authorized_device, session_token}`.
+- `api/device/getSubscriberProfiles/` → `remembered_subscriber_profile_id`; then `api/device/subscriberProfileUsed/`.
+- `api/device/getSources` `{id_subscriber_profile}` → `channels[]` with
+  `content_sources[0].stream_profile_urls.adaptive` = pre-signed HLS master (`_did,_sig,_ttl=86400`), `drm_config` null, `catchup_length` (hours), `id_epg`.
+- `api/epg/getEpgByDate` `{epg_ids[], date:'YYYY-MM-DD', language[], timezone_offset(min)}` → `broadcasts{id_epg:[...]}`; includes previous evening.
+- `api/epg/getCatchupBroadcasts` `{from,to,id_epg,language,timezone_offset}`.
+- `api/contentdemon/getContent/` `{channel_id,start,end,broadcast_offset}` → `stream_uri, start_from, overlap_pre, overlap_post, drm_config, hls_playlist_type`.
+  UNVERIFIED (derived from web app JS, no live capture).
+- `api/peoplemeter/getStreamLimit/` → `{allow_stream,max_devices,current_devices}`.
+- Logos: `https://epg.as.4net.tv/files/channel_logos/{id}.png`; programme images: replace `{size}` with `_300`.
+
+## Open items
+- Verify archive playback + StartOffset (`overlap_pre`/`start_from`).
+- Verify login/password auth for Pecka accounts.
+
+## Workflow
+- Test: `python3 test/run_test.py` (needs recorded responses in `test/fixtures/`, never commit real tokens).
+- Build: `zip -r plugin.video.peckatv-<ver>.zip plugin.video.peckatv -x '*.pyc' '*__pycache__*'` (bump version in addon.xml).
+- Deploy to Pi: copy folder to `/storage/.kodi/addons/plugin.video.peckatv/` (SSH root@<pi>, or SMB share `\\LIBREELEC\Userdata\..\addons`), then restart Kodi or `kodi-send --action="UpdateLocalAddons"`.
+- Debug: `/storage/.kodi/temp/kodi.log`, grep `[plugin.video.peckatv]`.
