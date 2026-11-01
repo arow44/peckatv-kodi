@@ -136,7 +136,9 @@ class Router(object):
         c = self.api.channel(self.params['id'])
         now = time.time()
         limit = now - c['catchup_hours'] * 3600
-        bcs = self.api.epg_by_date([c['id_epg']], self.params['date']).get(str(c['id_epg']), [])
+        # web app uses getCatchupBroadcasts for a single channel; getEpgByDate fails there
+        day_start = time.mktime(time.strptime(self.params['date'], '%Y-%m-%d'))
+        bcs = self.api.catchup(c['id_epg'], day_start, day_start + 86400)
         for b in sorted(bcs, key=lambda x: x['timestamp_start']):
             if b['timestamp_start'] > now or b['timestamp_start'] < limit:
                 continue

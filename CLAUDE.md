@@ -21,14 +21,14 @@ Target: LibreELEC 12+ (Kodi 21 Omega+, Python 3) on Raspberry Pi 4. Communicate 
 - `api/device/getSources` `{id_subscriber_profile}` → `channels[]` with
   `content_sources[0].stream_profile_urls.adaptive` = pre-signed HLS master (`_did,_sig,_ttl=86400`), `drm_config` null, `catchup_length` (hours), `id_epg`.
 - `api/epg/getEpgByDate` `{epg_ids[], date:'YYYY-M-D' (no zero padding!), language[], timezone_offset(min)}` → `broadcasts{id_epg:[...]}`; includes previous evening.
-- `api/epg/getCatchupBroadcasts` `{from,to,id_epg,language,timezone_offset}`.
+- `api/epg/getCatchupBroadcasts` `{from,to,id_epg,language,timezone_offset}` – used by web (and us) for single-channel archive lists; `getEpgByDate` with one id fails ("invalid url given v2/epg").
+  getEpgByDate is only used by the web with all epg_ids.
 - `api/contentdemon/getContent/` `{channel_id,start,end,broadcast_offset}` → `stream_uri, start_from, overlap_pre, overlap_post, drm_config, hls_playlist_type`.
-  UNVERIFIED (derived from web app JS, no live capture).
+  Verified via HAR: request `broadcast_offset:null`, response `start_from:60, overlap_pre:60, hls_playlist_type:VOD`.
 - `api/peoplemeter/getStreamLimit/` → `{allow_stream,max_devices,current_devices}`.
 - Logos: `https://epg.as.4net.tv/files/channel_logos/{id}.png`; programme images: replace `{size}` with `_300`.
 
 ## Open items
-- Verify archive playback + StartOffset (`overlap_pre`/`start_from`).
 - Verify login/password auth for Pecka accounts.
 
 ## Workflow
