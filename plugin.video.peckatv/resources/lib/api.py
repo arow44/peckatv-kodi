@@ -26,6 +26,10 @@ class AuthError(ApiError):
     pass
 
 
+def _redact(data):
+    return {k: ('***' if k in ('session_login_token', 'password') else v) for k, v in (data or {}).items()}
+
+
 def tz_offset_minutes(ts=None):
     ts = time.time() if ts is None else ts
     lt = time.localtime(ts)
@@ -88,11 +92,13 @@ class PeckaApi(object):
         except urllib.error.HTTPError as e:
             if e.code in (401, 403):
                 raise AuthError('HTTP %d on %s' % (e.code, path))
+            err = e.read().decode('utf-8', 'replace')
+            self.log('HTTP %d on %s, request %s, response %s' % (e.code, path, _redact(data), err[:500]))
             try:
-                msg = json.loads(e.read().decode('utf-8')).get('message')
+                msg = json.loads(err).get('message')
             except Exception:
                 msg = None
-            raise ApiError(msg or 'HTTP %d on %s' % (e.code, path))
+            raise ApiError('%s (%s)' % (msg, path) if msg else 'HTTP %d on %s' % (e.code, path))
         try:
             return json.loads(raw)
         except ValueError:

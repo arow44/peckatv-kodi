@@ -213,6 +213,7 @@ class Router(object):
 
 
 def run(argv):
+    ku.log('v%s %s' % (ku.ADDON.getAddonInfo('version'), argv[2] if len(argv) > 2 else ''))
     r = Router(argv)
     try:
         r.dispatch()
