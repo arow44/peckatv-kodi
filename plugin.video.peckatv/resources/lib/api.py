@@ -205,8 +205,10 @@ class PeckaApi(object):
         return None
 
     def epg_by_date(self, epg_ids, date_str):
+        # web app sends the date without zero padding ('2026-11-1'); padded days are rejected
+        y, m, d = (int(x) for x in str(date_str).split('-'))
         res = self.post('api/epg/getEpgByDate', {
-            'epg_ids': [str(i) for i in epg_ids], 'date': date_str,
+            'epg_ids': [str(i) for i in epg_ids], 'date': '%d-%d-%d' % (y, m, d),
             'language': LANGS, 'timezone_offset': tz_offset_minutes()})
         return res.get('broadcasts') or {}
 

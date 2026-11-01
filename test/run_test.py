@@ -29,6 +29,9 @@ def fake_post(self, path, data=None):
     if path == 'api/subscriber/pairBrowser':
         PAIRED.append(data['name'])
         return {'success': True, 'pairing_success': True}
+    if path == 'api/epg/getEpgByDate':
+        y, m, d = data['date'].split('-')
+        assert not (m.startswith('0') or d.startswith('0')), data['date']
     if path == 'api/contentdemon/getContent/':
         return {'stream_uri': 'https://streaming.example/arch.m3u8', 'start_from': 0, 'overlap_pre': 60}
     return json.loads(RESP[path])
@@ -55,6 +58,7 @@ try:
     assert len(live) > 100, len(live)
     assert len(go('?action=archive')[0]) > 0
     assert len(go('?action=archive_days&id=643')[0]) >= 7
+    go('?action=archive_day&id=643&date=2026-11-01')
     ok, li = go('?action=play_live&id=643')[1][0]
     assert ok and 'master.m3u8' in li.path
     ok, li = go('?action=play_archive&id=643&start=1793392800&end=1793405700')[1][0]
