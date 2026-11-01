@@ -21,7 +21,7 @@ Target: LibreELEC 12+ (Kodi 21 Omega+, Python 3) on Raspberry Pi 4. Communicate 
 - `api/device/getSubscriberProfiles/` → `remembered_subscriber_profile_id`; then `api/device/subscriberProfileUsed/` (every start).
 - Device init after login (web: getDeviceToken → evaluateDeviceType `{payload:{user_agent,browser_features}}` → `device_type`
   → logDeviceStart `{firmware, device_type}` → getSettings `{id_subscriber_profile}`). Without it all EPG endpoints
-  return HTTP 500 "Invalid url given: v2/epg/" (seen on a freshly paired Kodi; fix UNVERIFIED as of 0.1.5).
+  return HTTP 500 "Invalid url given: v2/epg/" (seen on a freshly paired Kodi; verified fixed in 0.1.5).
 - `api/device/getSources` `{id_subscriber_profile}` → `channels[]` with
   `content_sources[0].stream_profile_urls.adaptive` = pre-signed HLS master (`_did,_sig,_ttl=86400`), `drm_config` null, `catchup_length` (hours), `id_epg`.
 - `api/epg/getEpgByDate` `{epg_ids[], date:'YYYY-M-D' (no zero padding!), language[], timezone_offset(min)}` → `broadcasts{id_epg:[...]}`; includes previous evening.
