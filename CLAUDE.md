@@ -29,11 +29,26 @@ Target: LibreELEC 12+ (Kodi 21 Omega+, Python 3) on Raspberry Pi 4. Communicate 
   ("Invalid url given: v2/epg/" was caused by missing device init, not by these params.)
 - `api/contentdemon/getContent/` `{channel_id,start,end,broadcast_offset}` → `stream_uri, start_from, overlap_pre, overlap_post, drm_config, hls_playlist_type`.
   Verified via HAR: request `broadcast_offset:null`, response `start_from:60, overlap_pre:60, hls_playlist_type:VOD`.
+  Kodi 22 ignores the `StartOffset` property (and a resume point) on resolved plugin URLs, so playback starts in the
+  pre-roll. Intentionally left so – users like the minute before the programme; a seek-after-start was tried and dropped.
+- Recordings (nPVR, web `RecordService`, feature flag `allow_pvrs`):
+  `api/device/getAllPvrs {id_subscriber_profile}` → `pvrs[]` `{id,id_broadcast,id_channel,id_epg,name,channel_name,start,end,
+  start_with_preoverlap,end_with_postoverlap,poster,photo,poster_address,locked,playable,date_expired,date_created}`;
+  details via `api/epg/getBroadcasts {id_broadcasts[],language,timezone_offset}` → `broadcasts{id:…}`;
+  delete `api/device/deletePvr {id,id_subscriber_profile}`;
+  add `api/device/addPvr {id_subscriber_profile,id_broadcast,id_channel,id_epg,name[:64],start,end,poster,photo}`.
+  Recordable (web `Channel.canBeBroadcastRecorded`): channel `pvr`; future → yes; running → channel `timeshift`;
+  past → still inside `catchup_length`.
+- Series (feature `allow_periodic_pvrs`, channel `periodic_pvr`): `api/device/getAllPeriodicPvrs` → `periodic_pvrs[]`
+  `{id,id_show,id_channel,id_epg,name}`; `addPeriodicPvr {id_subscriber_profile,id_show,id_channel,name}`;
+  `deletePeriodicPvr {id,id_subscriber_profile}`.
+  Playback = same `getContent` as archive with the record's `id_channel,start,end` (web `getContentForRecord`).
 - `api/peoplemeter/getStreamLimit/` → `{allow_stream,max_devices,current_devices}`.
 - Logos: `https://epg.as.4net.tv/files/channel_logos/{id}.png`; programme images: replace `{size}` with `_300`.
 
 ## Open items
 - Verify login/password auth for Pecka accounts.
+- Verify recordings against a live account (built from web JS, not from a HAR).
 
 ## Workflow
 - Test: `python3 test/run_test.py` (needs recorded responses in `test/fixtures/`, never commit real tokens).

@@ -12,6 +12,7 @@ from resources.lib import kodiutils as ku
 from resources.lib.api import ApiError, AuthError, image_url, logo_url
 
 DAYS_CZ = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne']
+PROGRAM_DAYS_FORWARD = 7
 NOW_CACHE_TTL = 300
 
 
@@ -32,8 +33,10 @@ class Router(object):
         return self.base + '?' + urlencode(kw)
 
     # ---------- helpers ----------
-    def add_dir(self, label, art=None, info=None, folder=True, playable=False, **kw):
+    def add_dir(self, label, art=None, info=None, folder=True, playable=False, menu=None, **kw):
         li = xbmcgui.ListItem(label=label, offscreen=True)
+        if menu:
+            li.addContextMenuItems(menu)
         if art:
             li.setArt(art)
         if info:
@@ -83,10 +86,72 @@ class Router(object):
             pass
         return data
 
+    # ---------- recording helpers ----------
+    def _pvr_state(self):
+        """Existing recordings / series as lookup sets (cached for this plugin call)."""
+        if getattr(self, '_pvr_cache', None) is None:
+            recs, series = {}, set()
+            try:
+                for r in self.api.recordings():
+                    recs[(str(r.get('id_channel')), str(r.get('id_broadcast')))] = r
+            except ApiError as e:
+                ku.log('recordings lookup failed: %s' % e)
+            try:
+                for p in self.api.series_recordings():
+                    series.add((str(p.get('id_channel')), str(p.get('id_show'))))
+            except ApiError as e:
+                ku.log('series lookup failed: %s' % e)
+            self._pvr_cache = (recs, series)
+        return self._pvr_cache
+
+    @staticmethod
+    def _can_record(c, b, now=None):
+        """Same rule as web Channel.canBeBroadcastRecorded."""
+        now = time.time() if now is None else now
+        if not c.get('pvr', True):
+            return False
+        if b['timestamp_start'] >= now:
+            return True
+        if b['timestamp_end'] > now:  # running
+            return bool(c.get('timeshift'))
+        return b['timestamp_start'] >= now - (c.get('catchup_hours') or 0) * 3600
+
+    def _bc_params(self, c, b):
+        return dict(id=c['id'], bid=b['id'], start=b['timestamp_start'], end=b['timestamp_end'],
+                    epg=b.get('id_epg') or c.get('id_epg') or 0, name=(b.get('name') or '')[:64],
+                    show=b.get('id_show') or '', sname=(b.get('name_show') or '')[:64])
+
+    def _record_options(self, c, b):
+        """[(label, action-params)] available for a broadcast."""
+        recs, series = self._pvr_state()
+        opts = []
+        rec = recs.get((str(c['id']), str(b['id'])))
+        if rec:
+            opts.append(('Smazat nahrávku', dict(action='delete_recording', pvr=rec['id'], name=b.get('name', ''))))
+        elif self._can_record(c, b):
+            opts.append(('Nahrát', dict(action='record', **self._bc_params(c, b))))
+        if c.get('periodic_pvr') and b.get('id_show') and b['timestamp_end'] > time.time():
+            if (str(c['id']), str(b['id_show'])) not in series:
+                opts.append(('Nahrávat všechny díly', dict(action='record_series', **self._bc_params(c, b))))
+        return opts
+
+    def _record_menu(self, c, b):
+        return [(label, 'RunPlugin(%s)' % self.url(**kw)) for label, kw in self._record_options(c, b)]
+
+    def _rec_mark(self, c, b):
+        recs, series = self._pvr_state()
+        if (str(c['id']), str(b['id'])) in recs:
+            return '  [COLOR red]●REC[/COLOR]'
+        if b.get('id_show') and (str(c['id']), str(b['id_show'])) in series:
+            return '  [COLOR orange]●série[/COLOR]'
+        return ''
+
     # ---------- views ----------
     def root(self):
         self.add_dir('Živé vysílání', action='live')
         self.add_dir('Archiv', action='archive')
+        self.add_dir('Nahrávky', action='recordings')
+        self.add_dir('Program a nahrávání', action='program')
         self.add_dir('Vygenerovat M3U + EPG pro IPTV Simple', folder=False, action='iptv_generate')
         self.end('files')
 
@@ -106,7 +171,8 @@ class Router(object):
                 img = image_url(b)
                 if img:
                     art['fanart'] = img
-            self.add_dir(label, art=art, info=info, folder=False, playable=True,
+            menu = self._record_menu(c, b) if b and b.get('id') else None
+            self.add_dir(label, art=art, info=info, folder=False, playable=True, menu=menu,
                          action='play_live', id=c['id'])
         self.end('videos')
 
@@ -151,13 +217,203 @@ class Router(object):
                 label += ' – ' + b['name_episode']
             if running:
                 label += '  [COLOR red](běží)[/COLOR]'
+            label += self._rec_mark(c, b)
             img = image_url(b)
             art = {'thumb': img, 'fanart': img, 'icon': logo_url(c['id'])} if img else {'icon': logo_url(c['id'])}
-            self.add_dir(label, art=art, folder=False, playable=True,
+            self.add_dir(label, art=art, folder=False, playable=True, menu=self._record_menu(c, b),
                          info={'title': b['name'], 'plot': b.get('description_broadcast') or '',
                                'duration': b['timestamp_end'] - b['timestamp_start'], 'year': b.get('year')},
                          action='play_archive', id=c['id'], start=b['timestamp_start'], end=b['timestamp_end'])
         self.end('episodes')
+
+    def recordings(self):
+        now = time.time()
+        recs = self.api.recordings()
+        try:
+            n_series = len(self.api.series_recordings())
+        except ApiError:
+            n_series = 0
+        if n_series:
+            self.add_dir('[B]Sériová nahrávání (%d)[/B]' % n_series, action='series')
+        details = {}
+        try:
+            details = self.api.broadcasts({r.get('id_broadcast') for r in recs})
+        except ApiError as e:
+            ku.log('recording details failed: %s' % e)
+        names = {str(c['id']): c['name'] for c in self.api.channels()}
+        # newest first (web default ordering by creation date desc ~ by start desc)
+        for r in sorted(recs, key=lambda x: x.get('start') or 0, reverse=True):
+            start, end = r.get('start') or 0, r.get('end') or 0
+            b = details.get(str(r.get('id_broadcast'))) or details.get(r.get('id_broadcast')) or {}
+            name = r.get('name') or b.get('name') or 'Nahrávka'
+            channel = r.get('channel_name') or names.get(str(r.get('id_channel')), '')
+            when = time.strftime('%d.%m. %H:%M', time.localtime(start)) if start else ''
+            label = '%s  [COLOR gray]%s, %s[/COLOR]' % (name, channel, when)
+            if b.get('name_episode') and b['name_episode'] not in name:
+                label = label.replace(name, '%s – %s' % (name, b['name_episode']), 1)
+            playable = start and start < now and r.get('playable', True) is not False
+            if start > now:
+                label += '  [COLOR yellow](naplánováno)[/COLOR]'
+            elif end > now:
+                label += '  [COLOR red](nahrává se)[/COLOR]'
+            plot = b.get('description_broadcast') or ''
+            if r.get('date_expired'):
+                days = int((r['date_expired'] - now) // 86400) + 1
+                plot = ('Smaže se za %d dní (%s)\n\n' % (days, time.strftime(
+                    '%d.%m.%Y', time.localtime(r['date_expired'])))) + plot
+            img = image_url(b) or image_url(r) or r.get('poster_address')
+            art = {'icon': logo_url(r.get('id_channel'))}
+            if img:
+                art.update({'thumb': img, 'fanart': img, 'poster': img})
+            menu = [('Smazat nahrávku', 'RunPlugin(%s)' % self.url(action='delete_recording', pvr=r['id'],
+                                                                   name=name))]
+            self.add_dir(label, art=art, folder=False, playable=bool(playable), menu=menu,
+                         info={'title': name, 'plot': plot, 'duration': max(0, end - start),
+                               'year': b.get('year')},
+                         action='play_archive' if playable else 'not_playable',
+                         id=r.get('id_channel'), start=start, end=end)
+        self.end('episodes')
+
+    def not_playable(self):
+        ku.notify('Nahrávku zatím nelze přehrát')
+
+    def delete_recording(self):
+        name = self.params.get('name', '')
+        if not xbmcgui.Dialog().yesno('Pecka.TV', 'Opravdu smazat nahrávku?\n[B]%s[/B]' % name):
+            return
+        self.api.delete_recording(self.params['pvr'])
+        ku.notify('Nahrávka smazána')
+        xbmc.executebuiltin('Container.Refresh')
+
+    def series(self):
+        names = {str(c['id']): c['name'] for c in self.api.channels()}
+        for p in sorted(self.api.series_recordings(), key=lambda x: (x.get('name') or '').lower()):
+            name = p.get('name') or 'Pořad'
+            label = '%s  [COLOR gray]%s[/COLOR]' % (name, names.get(str(p.get('id_channel')), ''))
+            menu = [('Zrušit sériové nahrávání', 'RunPlugin(%s)' % self.url(
+                action='delete_series', periodic=p['id'], name=name))]
+            self.add_dir(label, art={'icon': logo_url(p.get('id_channel'))}, folder=False, menu=menu,
+                         action='delete_series', periodic=p['id'], name=name)
+        self.end('files')
+
+    def delete_series(self):
+        name = self.params.get('name', '')
+        if not xbmcgui.Dialog().yesno('Pecka.TV', 'Zrušit nahrávání všech dílů?\n[B]%s[/B]\n'
+                                      'Už nahrané díly zůstanou.' % name):
+            return
+        self.api.delete_series_recording(self.params['periodic'])
+        ku.notify('Sériové nahrávání zrušeno')
+        xbmc.executebuiltin('Container.Refresh')
+
+    # ---------- programme (EPG forward) + scheduling ----------
+    def program(self):
+        for c in self.api.channels():
+            if c['url'] and c.get('pvr', True):
+                self.add_dir(c['name'], art={'icon': logo_url(c['id']), 'thumb': logo_url(c['id'])},
+                             action='program_days', id=c['id'])
+        self.end('files')
+
+    def program_days(self):
+        c = self.api.channel(self.params['id'])
+        today = datetime.date.today()
+        for i in range(PROGRAM_DAYS_FORWARD + 1):
+            d = today + datetime.timedelta(days=i)
+            if i == 0:
+                label = 'Dnes'
+            elif i == 1:
+                label = 'Zítra'
+            else:
+                label = '%s %s' % (DAYS_CZ[d.weekday()], d.strftime('%d.%m.'))
+            self.add_dir(label, action='program_day', id=c['id'], date=d.isoformat())
+        self.end('files')
+
+    def _day_broadcasts(self, c, date):
+        bcs = []
+        try:
+            bcs = self.api.epg_by_date([c['id_epg']], date).get(str(c['id_epg'])) or []
+        except ApiError as e:
+            ku.log('getEpgByDate failed for %s: %s' % (c['id_epg'], e))
+        if not bcs:  # fallback: same endpoint as the archive
+            day_start = time.mktime(time.strptime(date, '%Y-%m-%d'))
+            bcs = self.api.catchup(c['id_epg'], day_start, day_start + 86400)
+        return [b for b in bcs if time.strftime('%Y-%m-%d', time.localtime(b['timestamp_start'])) == date]
+
+    def program_day(self):
+        c = self.api.channel(self.params['id'])
+        now = time.time()
+        for b in sorted(self._day_broadcasts(c, self.params['date']), key=lambda x: x['timestamp_start']):
+            if b['timestamp_end'] <= now - (c.get('catchup_hours') or 0) * 3600:
+                continue  # neither playable nor recordable any more
+            t = time.strftime('%H:%M', time.localtime(b['timestamp_start']))
+            label = '%s  %s' % (t, b['name'])
+            if b.get('name_episode') and b['name_episode'] not in b['name']:
+                label += ' – ' + b['name_episode']
+            past = b['timestamp_start'] <= now
+            if past and b['timestamp_end'] > now:
+                label += '  [COLOR red](běží)[/COLOR]'
+            elif past:
+                label = '[COLOR gray]%s[/COLOR]' % label
+            label += self._rec_mark(c, b)
+            img = image_url(b)
+            art = {'icon': logo_url(c['id'])}
+            if img:
+                art.update({'thumb': img, 'fanart': img})
+            info = {'title': b['name'], 'plot': b.get('description_broadcast') or '',
+                    'duration': b['timestamp_end'] - b['timestamp_start'], 'year': b.get('year')}
+            if past and b['timestamp_end'] <= now:
+                self.add_dir(label, art=art, info=info, folder=False, playable=True,
+                             menu=self._record_menu(c, b), action='play_archive',
+                             id=c['id'], start=b['timestamp_start'], end=b['timestamp_end'])
+            else:
+                self.add_dir(label, art=art, info=info, folder=False, menu=self._record_menu(c, b),
+                             action='broadcast_menu', **self._bc_params(c, b))
+        self.end('episodes')
+
+    def _bc_from_params(self):
+        p = self.params
+        b = {'id': int(p['bid']), 'timestamp_start': int(p['start']), 'timestamp_end': int(p['end']),
+             'id_epg': int(p.get('epg') or 0), 'name': p.get('name', ''),
+             'id_show': int(p['show']) if p.get('show') else None, 'name_show': p.get('sname') or None}
+        try:  # web sends poster/photo objects too; take them from the broadcast detail
+            d = self.api.broadcasts([b['id']])
+            d = d.get(str(b['id'])) or d.get(b['id']) or {}
+            for k in ('poster', 'photo'):
+                if d.get(k):
+                    b[k] = d[k]
+        except ApiError as e:
+            ku.log('broadcast detail failed: %s' % e)
+        return b
+
+    def broadcast_menu(self):
+        c = self.api.channel(self.params['id'])
+        b = self._bc_from_params()
+        opts = self._record_options(c, b)
+        if not opts:
+            ku.notify('Tento pořad nelze nahrát')
+            return
+        i = xbmcgui.Dialog().select(b['name'], [o[0] for o in opts])
+        if i < 0:
+            return
+        self.params = {k: str(v) for k, v in opts[i][1].items()}
+        self.dispatch()
+
+    def record(self):
+        b = self._bc_from_params()
+        self.api.add_recording(self.params['id'], b)
+        ku.notify('%s: %s' % ('Nahrávka naplánována' if b['timestamp_end'] > time.time()
+                              else 'Uloženo do nahrávek', b['name']))
+        xbmc.executebuiltin('Container.Refresh')
+
+    def record_series(self):
+        b = self._bc_from_params()
+        if not b.get('id_show'):
+            raise ApiError('Pořad není seriál')
+        if not xbmcgui.Dialog().yesno('Pecka.TV', 'Nahrávat všechny díly pořadu?\n[B]%s[/B]'
+                                      % (b.get('name_show') or b['name'])):
+            return
+        self.api.add_series_recording(self.params['id'], b)
+        ku.notify('Sériové nahrávání zapnuto')
+        xbmc.executebuiltin('Container.Refresh')
 
     # ---------- playback ----------
     def _check_limit(self):

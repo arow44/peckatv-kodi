@@ -212,6 +212,8 @@ class PeckaApi(object):
     # ---------- data ----------
     def channels(self, force=False):
         cache = self.state.get('sources')
+        if cache and cache.get('channels') and 'pvr' not in cache['channels'][0]:
+            force = True  # cache from < 0.3.0 lacks recording flags
         if not force and cache and time.time() - cache.get('ts', 0) < SOURCES_TTL:
             return cache['channels']
         res = self.post('api/device/getSources', {'id_subscriber_profile': self.profile_id})
@@ -231,6 +233,7 @@ class PeckaApi(object):
                 'type': c.get('type'), 'weight': c.get('weight', 0),
                 'timeshift': c.get('timeshift'), 'catchup_hours': c.get('catchup_length') or 0,
                 'url': url, 'drm': drm,
+                'pvr': bool(c.get('pvr')), 'periodic_pvr': bool(c.get('periodic_pvr')),
             })
         chans.sort(key=lambda x: x['weight'])
         self.state['sources'] = {'ts': time.time(), 'channels': chans}
@@ -265,6 +268,65 @@ class PeckaApi(object):
             raise ApiError(res.get('message') or 'Archiv není dostupný')
         return res
 
+    # ---------- recordings (nPVR) ----------
+    def recordings(self):
+        """Cloud recordings of the active profile (web: RecordService.loadRecords)."""
+        res = self.post('api/device/getAllPvrs', {'id_subscriber_profile': self.profile_id})
+        if res.get('success') is False:
+            raise ApiError(res.get('message') or 'Nahrávky nejsou dostupné')
+        return res.get('pvrs') or []
+
+    def broadcasts(self, broadcast_ids):
+        """Broadcast details (description, poster…) by id -> {id_broadcast: broadcast}."""
+        ids = [int(i) for i in broadcast_ids if i]
+        if not ids:
+            return {}
+        res = self.post('api/epg/getBroadcasts', {
+            'id_broadcasts': ids, 'language': LANGS, 'timezone_offset': tz_offset_minutes()})
+        return res.get('broadcasts') or {}
+
+    def delete_recording(self, pvr_id):
+        res = self.post('api/device/deletePvr', {'id': int(pvr_id), 'id_subscriber_profile': self.profile_id})
+        if res.get('success') is False:
+            raise ApiError(res.get('message') or 'Smazání nahrávky selhalo')
+        return res
+
+    def add_recording(self, channel_id, bc):
+        """Schedule / save one broadcast (web: RecordService.createRecordByBroadcastAndChannel).
+        `bc` is a broadcast as returned by the EPG endpoints."""
+        res = self.post('api/device/addPvr', {
+            'id_subscriber_profile': self.profile_id, 'id_broadcast': int(bc['id']),
+            'id_channel': int(channel_id), 'id_epg': int(bc.get('id_epg') or 0),
+            'name': (bc.get('name') or '')[:64],
+            'start': int(bc['timestamp_start']), 'end': int(bc['timestamp_end']),
+            'poster': bc.get('poster'), 'photo': bc.get('photo')})
+        if res.get('success') is False:
+            raise ApiError(res.get('message') or 'Naplánování nahrávky selhalo')
+        return res
+
+    def series_recordings(self):
+        res = self.post('api/device/getAllPeriodicPvrs', {'id_subscriber_profile': self.profile_id})
+        if res.get('success') is False:
+            raise ApiError(res.get('message') or 'Sériová nahrávání nejsou dostupná')
+        return res.get('periodic_pvrs') or []
+
+    def add_series_recording(self, channel_id, bc):
+        """Record every episode of a show on a channel (web: PeriodicPvrService)."""
+        res = self.post('api/device/addPeriodicPvr', {
+            'id_subscriber_profile': self.profile_id, 'id_show': int(bc['id_show']),
+            'id_channel': int(channel_id),
+            'name': bc.get('name_show') or (bc.get('name') or '')[:64]})
+        if res.get('success') is False:
+            raise ApiError(res.get('message') or 'Naplánování sériového nahrávání selhalo')
+        return res
+
+    def delete_series_recording(self, periodic_id):
+        res = self.post('api/device/deletePeriodicPvr',
+                        {'id': int(periodic_id), 'id_subscriber_profile': self.profile_id})
+        if res.get('success') is False:
+            raise ApiError(res.get('message') or 'Zrušení sériového nahrávání selhalo')
+        return res
+
     def stream_limit(self):
         try:
             res = self.post('api/peoplemeter/getStreamLimit/',
@@ -281,6 +343,8 @@ def logo_url(channel_id):
 def image_url(bc, size='_300'):
     for k in ('photo', 'poster'):
         p = bc.get(k)
-        if p and p.get('url'):
+        if isinstance(p, dict) and p.get('url'):
             return p['url'].replace('{size}', size)
+        if isinstance(p, str) and p.startswith('http'):
+            return p.replace('{size}', size)
     return None
