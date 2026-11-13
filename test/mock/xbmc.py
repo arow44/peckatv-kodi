@@ -5,3 +5,6 @@ def getCondVisibility(c): return True
 class Monitor:
     def abortRequested(self): return True
     def waitForAbort(self,t): return True
+
+BUILTINS=[]
+def executebuiltin(c): BUILTINS.append(c)

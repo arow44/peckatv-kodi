@@ -6,6 +6,10 @@ Není nijak spojen s provozovatelem služby – pro použití je nutné vlastní
 ## Funkce
 - živé vysílání (HLS přes `inputstream.adaptive`, volitelně bez něj)
 - archiv pořadů podle kanálu a dne
+- **nahrávky** (nPVR) – přehrání, stav naplánovaných, mazání přes kontextové menu
+- **plánování nahrávek** – *Program a nahrávání* (7 dní dopředu): kliknutím na pořad *Nahrát*
+  nebo *Nahrávat všechny díly*; totéž v kontextovém menu u živého vysílání a v archivu;
+  sériová nahrávání lze zrušit v *Nahrávky → Sériová nahrávání*
 - export M3U + XMLTV pro **PVR IPTV Simple Client** (ručně i automaticky službou na pozadí)
 - kontrola limitu souběžných streamů
 
@@ -51,6 +55,7 @@ a archiv přímo z průvodce.
 
 ## Stav
 - Živé vysílání, archiv a EPG / IPTV Simple: funkční.
+- Nahrávky a jejich plánování (0.2.0–0.3.0): podle API webové aplikace, ověřeno offline testem.
 - Přihlášení e-mailem/heslem: zatím neověřeno.
 
 ## Řešení problémů
